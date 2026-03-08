@@ -1,9 +1,11 @@
-FROM node:22-bullseye AS deps
+ARG NODE_IMAGE=m.daocloud.io/docker.io/library/node:22-bullseye
+
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
-FROM node:22-bullseye AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -19,7 +21,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM node:22-bullseye AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/package.json ./package.json
@@ -32,5 +34,4 @@ COPY --from=builder /app/worker ./worker
 COPY --from=builder /app/next.config.js ./next.config.js
 RUN npm prune --omit=dev --legacy-peer-deps
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1:3000 || exit 1
 CMD ["npm", "start"]

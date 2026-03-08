@@ -7,6 +7,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
       args:
+        NODE_IMAGE: ${NODE_IMAGE:-m.daocloud.io/docker.io/library/node:22-bullseye}
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY: ${NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY}
@@ -17,6 +18,11 @@ services:
     command: npm start
     ports:
       - "${WEB_PORT:-38080}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,13 +33,15 @@ services:
     env_file:
       - .env
     command: npm run worker
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
   postgres:
-    image: postgres:16
+    image: ${POSTGRES_IMAGE:-m.daocloud.io/docker.io/library/postgres:16}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-fund_alert}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
