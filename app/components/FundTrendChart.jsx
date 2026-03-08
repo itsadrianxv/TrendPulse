@@ -31,21 +31,21 @@ ChartJS.register(
 
 const CHART_COLORS = {
   dark: {
-    danger: '#f87171',
-    success: '#34d399',
-    primary: '#22d3ee',
-    muted: '#9ca3af',
-    border: '#1f2937',
-    text: '#e5e7eb',
-    crosshairText: '#0f172a',
+    danger: '#f18a82',
+    success: '#66c39a',
+    primary: '#9082f4',
+    muted: '#a6aecf',
+    border: '#2d3552',
+    text: '#eef1ff',
+    crosshairText: '#151827',
   },
   light: {
-    danger: '#dc2626',
-    success: '#059669',
-    primary: '#0891b2',
-    muted: '#475569',
-    border: '#e2e8f0',
-    text: '#0f172a',
+    danger: '#d35e58',
+    success: '#2f9369',
+    primary: '#5b63d8',
+    muted: '#6c7392',
+    border: '#dde2f2',
+    text: '#1f2540',
     crosshairText: '#ffffff',
   }
 };
@@ -389,7 +389,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand, trans
       if (!activeElements?.length && datasets[2] && datasets[2].data) {
           const firstSellIndex = datasets[2].data.findIndex(v => v !== null && v !== undefined);
           if (firstSellIndex !== -1) {
-              drawPointLabel(2, firstSellIndex, '卖出', '#f87171');
+              drawPointLabel(2, firstSellIndex, '卖出', colors.danger);
           }
       }
 

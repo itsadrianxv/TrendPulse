@@ -4255,7 +4255,7 @@ export default function HomePage() {
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = 'var(--primary)';
                     e.currentTarget.style.color = 'var(--primary)';
-                    e.currentTarget.style.background = 'rgba(34, 211, 238, 0.05)';
+                    e.currentTarget.style.background = 'var(--selected-bg)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.borderColor = 'var(--border)';

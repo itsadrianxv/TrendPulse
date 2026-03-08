@@ -319,7 +319,7 @@ export default function TradeModal({ type, fund, holding, onClose, onConfirm, pe
                       className="button"
                       onClick={handleFinalConfirm}
                       disabled={loadingPrice}
-                      style={{ flex: 1, background: 'var(--primary)', opacity: loadingPrice ? 0.6 : 1, color: '#05263b' }}
+                      style={{ flex: 1, background: 'var(--primary)', opacity: loadingPrice ? 0.6 : 1, color: '#fff' }}
                     >
                       {loadingPrice ? '请稍候' : (price ? '确认买入' : '加入待处理队列')}
                     </button>

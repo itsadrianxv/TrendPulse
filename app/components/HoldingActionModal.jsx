@@ -34,7 +34,7 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
                   marginLeft: 8, 
                   padding: '4px 8px', 
                   fontSize: '12px', 
-                  background: 'rgba(255,255,255,0.1)',
+                  background: 'var(--surface-2)',
                   border: 'none',
                   borderRadius: '4px',
                   color: 'var(--text)',
@@ -63,14 +63,14 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
           <button
             className="button col-4"
             onClick={() => onAction('buy')}
-            style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: 14 }}
+            style={{ background: 'var(--selected-bg)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: 14 }}
           >
             加仓
           </button>
           <button
             className="button col-4"
             onClick={() => onAction('sell')}
-            style={{ background: 'rgba(248, 113, 113, 0.1)', border: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 14 }}
+            style={{ background: 'var(--danger-soft)', border: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 14 }}
           >
             减仓
           </button>
@@ -89,9 +89,9 @@ export default function HoldingActionModal({ fund, onClose, onAction, hasHistory
             onClick={() => onAction('clear')}
             style={{
               marginTop: 8,
-              background: 'linear-gradient(180deg, #ef4444, #f87171)',
-              border: 'none',
-              color: '#2b0b0b',
+              background: 'var(--danger)',
+              border: '1px solid var(--danger)',
+              color: '#fff',
               fontWeight: 600
             }}
           >

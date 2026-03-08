@@ -124,7 +124,7 @@ export default function AddHistoryModal({ fund, onClose, onConfirm }) {
                 padding: '6px 10px',
                 borderRadius: 8,
                 border: type === 'buy' ? '1px solid var(--primary)' : '1px solid var(--border)',
-                background: type === 'buy' ? 'rgba(34,211,238,0.08)' : 'transparent',
+                background: type === 'buy' ? 'var(--selected-bg)' : 'transparent',
                 cursor: 'pointer',
                 fontSize: '13px'
               }}
@@ -149,7 +149,7 @@ export default function AddHistoryModal({ fund, onClose, onConfirm }) {
                 padding: '6px 10px',
                 borderRadius: 8,
                 border: type === 'sell' ? '1px solid var(--danger)' : '1px solid var(--border)',
-                background: type === 'sell' ? 'rgba(248,113,113,0.08)' : 'transparent',
+                background: type === 'sell' ? 'var(--danger-soft)' : 'transparent',
                 cursor: 'pointer',
                 fontSize: '13px'
               }}

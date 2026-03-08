@@ -856,7 +856,7 @@ export default function PcFundTable({
         .resizer:hover::after {
           opacity: 1;
           background: var(--primary);
-          box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
+          box-shadow: 0 0 0 2px var(--selected-border);
         }
         
         .table-header-cell:hover .resizer::after {
