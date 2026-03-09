@@ -1,0 +1,74 @@
+
+> real-time-fund@0.2.1 dev
+> next dev --hostname 127.0.0.1 --port 3000
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 1927ms
+○ Compiling / ...
+ GET / 200 in 9.0s (compile: 8.1s, render: 870ms)
+ GET / 200 in 162ms (compile: 39ms, render: 123ms)
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 1662ms
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 1066ms
+ GET / 200 in 1667ms (compile: 846ms, render: 821ms)
+  Reload env: .env
+ GET / 200 in 304ms (compile: 185ms, render: 118ms)
+  Reload env: .env
+ GET / 200 in 130ms (compile: 84ms, render: 46ms)
+  Reload env: .env
+ GET / 200 in 428ms (compile: 295ms, render: 133ms)
+ GET / 200 in 505ms (compile: 159ms, render: 346ms)
+ GET / 200 in 254ms (compile: 73ms, render: 181ms)
+ GET / 200 in 254ms (compile: 40ms, render: 215ms)
+ GET / 200 in 238ms (compile: 18ms, render: 220ms)
+ GET / 200 in 246ms (compile: 23ms, render: 222ms)
+ GET / 200 in 240ms (compile: 21ms, render: 219ms)
+ GET / 200 in 241ms (compile: 18ms, render: 223ms)
+ GET / 200 in 243ms (compile: 26ms, render: 216ms)
+ GET / 200 in 237ms (compile: 22ms, render: 215ms)
+ GET / 200 in 233ms (compile: 27ms, render: 206ms)
+ GET / 200 in 226ms (compile: 19ms, render: 207ms)
+ GET / 200 in 220ms (compile: 21ms, render: 199ms)
+ GET / 200 in 214ms (compile: 18ms, render: 196ms)
+ GET / 200 in 162ms (compile: 21ms, render: 141ms)
+ GET / 200 in 107ms (compile: 22ms, render: 85ms)
+ GET / 200 in 58ms (compile: 18ms, render: 41ms)
+✓ Compiled in 4.4s
+ GET / 200 in 575ms (compile: 414ms, render: 161ms)
+✓ Compiled in 4.3s
+ GET / 200 in 1330ms (compile: 422ms, render: 907ms)
+ GET / 200 in 788ms (compile: 48ms, render: 740ms)
+✓ Compiled in 106ms
+✓ Compiled in 4.7s
+✓ Compiled in 5.2s
+✓ Compiled in 4.5s
+✓ Compiled in 2.4s
+✓ Compiled in 842ms
+✓ Compiled in 657ms
+ GET / 200 in 1451ms (compile: 426ms, render: 1025ms)
+ GET / 200 in 867ms (compile: 61ms, render: 806ms)
+✓ Compiled in 121ms
+✓ Compiled in 5.9s
+✓ Compiled in 283ms
+ GET /api/alert/fund-bindings 500 in 2.9s (compile: 2.6s, render: 263ms)
+✓ Compiled in 349ms
+✓ Compiled in 84ms
+✓ Compiled in 93ms
+✓ Compiled in 8.2s
+✓ Compiled in 1390ms
