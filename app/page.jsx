@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Announcement from "./components/Announcement";
 import { Stat } from "./components/Common";
 import FundTrendChart from "./components/FundTrendChart";
-import FundIntradayChart from "./components/FundIntradayChart";
+import FundValuationHistoryPanel from "./components/FundValuationHistoryPanel";
 import { ChevronIcon, CloseIcon, ExitIcon, EyeIcon, EyeOffIcon, GridIcon, ListIcon, LoginIcon, LogoutIcon, MoonIcon, PinIcon, PinOffIcon, PlusIcon, RefreshIcon, SettingsIcon, SortIcon, StarIcon, SunIcon, TrashIcon, UpdateIcon, UserIcon, CameraIcon } from "./components/Icons";
 import AddFundToGroupModal from "./components/AddFundToGroupModal";
 import AddResultModal from "./components/AddResultModal";
@@ -1655,6 +1655,8 @@ export default function HomePage() {
   const fetchCloudConfigRef = useRef(null);
   const syncUserConfigRef = useRef(null);
   const getComparablePayloadRef = useRef(() => '');
+  const subscriptionSyncDebounceRef = useRef(null);
+  const subscriptionSyncSignatureRef = useRef('');
   const dirtyKeysRef = useRef(new Set()); // 记录发生变化的字段
 
   useEffect(() => {
@@ -1670,6 +1672,14 @@ export default function HomePage() {
   useEffect(() => {
     userIdRef.current = user?.id || null;
   }, [user]);
+
+  useEffect(() => {
+    subscriptionSyncSignatureRef.current = '';
+    if (subscriptionSyncDebounceRef.current) {
+      clearTimeout(subscriptionSyncDebounceRef.current);
+      subscriptionSyncDebounceRef.current = null;
+    }
+  }, [user?.id]);
 
   const getFundCodesSignature = useCallback((value, extraFields = []) => {
     try {
@@ -1691,6 +1701,82 @@ export default function HomePage() {
       return '';
     }
   }, []);
+
+  const getFundSubscriptionSignature = useCallback((value) => {
+    try {
+      const list = Array.isArray(value) ? value : JSON.parse(value || '[]');
+      if (!Array.isArray(list)) return '';
+      const items = dedupeByCode(list)
+        .map((item) => {
+          const code = String(item?.code || '').trim();
+          if (!code) return null;
+          const name = String(item?.name || '').trim();
+          return `${code}:${name}`;
+        })
+        .filter(Boolean)
+        .sort();
+      return items.join('|');
+    } catch (e) {
+      return '';
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id || !isSupabaseConfigured) return;
+
+    const normalizedFunds = dedupeByCode(funds)
+      .map((item) => {
+        const code = String(item?.code || '').trim();
+        if (!code) return null;
+        return {
+          code,
+          name: String(item?.name || '').trim()
+        };
+      })
+      .filter(Boolean);
+
+    const signature = getFundSubscriptionSignature(normalizedFunds);
+    if (signature === subscriptionSyncSignatureRef.current) return;
+
+    if (subscriptionSyncDebounceRef.current) {
+      clearTimeout(subscriptionSyncDebounceRef.current);
+    }
+
+    subscriptionSyncDebounceRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        const accessToken = data?.session?.access_token;
+        if (!accessToken) return;
+
+        const response = await fetch('/api/valuation/subscriptions/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ funds: normalizedFunds })
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || 'subscription sync failed');
+        }
+
+        subscriptionSyncSignatureRef.current = signature;
+      } catch (e) {
+        console.error('sync valuation subscriptions failed', e);
+      }
+    }, 1500);
+
+    return () => {
+      if (subscriptionSyncDebounceRef.current) {
+        clearTimeout(subscriptionSyncDebounceRef.current);
+        subscriptionSyncDebounceRef.current = null;
+      }
+    };
+  }, [funds, getFundSubscriptionSignature, user?.id]);
 
   const scheduleSync = useCallback(() => {
     if (!userIdRef.current) return;
@@ -4573,29 +4659,14 @@ export default function HomePage() {
                                     基于 {Math.round(f.estPricedCoverage * 100)}% 持仓估算
                                   </div>
                                 )}
-                                {(() => {
-                                  const showIntraday = Array.isArray(valuationSeries[f.code]) && valuationSeries[f.code].length >= 2;
-                                  if (!showIntraday) return null;
-
-                                  // 如果今日日期大于估值日期，说明是历史估值，不显示分时图
-                                  if (f.gztime && toTz(todayStr).startOf('day').isAfter(toTz(f.gztime).startOf('day'))) {
-                                    return null;
-                                  }
-
-                                  // 如果 jzrq 等于估值日期或在此之前（意味着净值已经更新到了估值日期，或者是历史数据），则隐藏实时估值分时
-                                  if (f.jzrq && f.gztime && toTz(f.jzrq).startOf('day').isSameOrAfter(toTz(f.gztime).startOf('day'))) {
-                                    return null;
-                                  }
-
-                                  return (
-                                    <FundIntradayChart
-                                      key={`${f.code}-intraday-${theme}`}
-                                      series={valuationSeries[f.code]}
-                                      referenceNav={f.dwjz != null ? Number(f.dwjz) : undefined}
-                                      theme={theme}
-                                    />
-                                  );
-                                })()}
+                                {!f.noValuation && (
+                                  <FundValuationHistoryPanel
+                                    fund={f}
+                                    fallbackSeries={valuationSeries[f.code] || []}
+                                    todayStr={todayStr}
+                                    theme={theme}
+                                  />
+                                )}
                                 {f.holdingsIsLastQuarter && Array.isArray(f.holdings) && f.holdings.length > 0 && (
                                   <>
                                     <div

@@ -10,10 +10,13 @@ import {
   listRecentBars,
   upsertSignalEvent,
   listSignalEventsByDay,
-  insertNotifyLog
+  insertNotifyLog,
+  listActiveFundValuationTargets,
+  upsertFundValuationSample1m
 } from './db.mjs';
 import { resolveBindingRuntimeConfig } from './config.mjs';
 import { fetchBenchmarkLatestPrice } from './market.mjs';
+import { fetchFundRealtimeValuation } from '../valuation/fetch.mjs';
 import {
   isBarCloseMinute,
   resolveBarWindow,
@@ -65,6 +68,28 @@ const sampleBenchmarks = async ({ runtimeBindings, timestamp }) => {
       });
     } catch (error) {
       log('sample_failed', benchmarkCode, error.message);
+    }
+  }
+};
+
+const sampleFundValuations = async ({ targets, timestamp }) => {
+  const tradeDate = timestamp.format('YYYY-MM-DD');
+
+  for (const target of targets) {
+    try {
+      const valuation = await fetchFundRealtimeValuation(target.fund_code);
+      await upsertFundValuationSample1m({
+        fundCode: target.fund_code,
+        tradeDate,
+        sampleMinute: timestamp.toDate(),
+        estimateNav: valuation.estimateNav,
+        estimateChangePercent: valuation.estimateChangePercent,
+        latestNav: valuation.latestNav,
+        navDate: valuation.navDate,
+        estimateTime: valuation.estimateTime
+      });
+    } catch (error) {
+      log('valuation_sample_failed', target.fund_code, error.message);
     }
   }
 };
@@ -373,21 +398,27 @@ export const runWorkerTick = async ({ timezoneName, webhookUrl }) => {
 
   const now = nowInTz(timezoneName);
   const runtimeBindings = await loadRuntimeBindings();
+  const valuationTargets = await listActiveFundValuationTargets();
 
-  if (!runtimeBindings.length) {
-    log('tick_skip_no_binding', now.format());
+  if (!runtimeBindings.length && !valuationTargets.length) {
+    log('tick_skip_no_binding_or_subscription', now.format());
     return;
   }
 
   if (isSamplingMinute(now, timezoneName)) {
     await sampleBenchmarks({ runtimeBindings, timestamp: now });
+    if (valuationTargets.length) {
+      await sampleFundValuations({ targets: valuationTargets, timestamp: now });
+    }
   }
 
-  await aggregateClosedBars({
-    runtimeBindings,
-    timestamp: now,
-    timezoneName
-  });
+  if (runtimeBindings.length) {
+    await aggregateClosedBars({
+      runtimeBindings,
+      timestamp: now,
+      timezoneName
+    });
+  }
 
   for (const binding of runtimeBindings) {
     await processBindingStages({
@@ -398,7 +429,12 @@ export const runWorkerTick = async ({ timezoneName, webhookUrl }) => {
     });
   }
 
-  log('tick_done', now.format(), `bindings=${runtimeBindings.length}`);
+  log(
+    'tick_done',
+    now.format(),
+    `bindings=${runtimeBindings.length}`,
+    `valuations=${valuationTargets.length}`
+  );
 };
 
 export const startWorkerLoop = async ({ timezoneName, webhookUrl }) => {
