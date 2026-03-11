@@ -1,152 +1,139 @@
-# 实时基金估值 (Real-time Fund Valuation)
+# Real-time Fund
 
-一个基于 Next.js 开发的纯前端基金估值与重仓股实时追踪工具。采用玻璃拟态设计（Glassmorphism），支持移动端适配。
-预览地址：  
-1. [https://hzm0321.github.io/real-time-fund/](https://hzm0321.github.io/real-time-fund/)
-2. [https://fund.cc.cd/](https://fund.cc.cd/) （加速国内访问）
+[![Pages](https://github.com/maroonxv/real-time-fund/actions/workflows/nextjs.yml/badge.svg)](https://github.com/maroonxv/real-time-fund/actions/workflows/nextjs.yml)
+[![Docker CI](https://github.com/maroonxv/real-time-fund/actions/workflows/docker-ci.yml/badge.svg)](https://github.com/maroonxv/real-time-fund/actions/workflows/docker-ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
 
-## ✨ 特性
+一个面向基金投资场景的 Next.js 应用，集成了实时估值看板、持仓收益记录、云同步、盘中估值历史，以及基于 `worker + PostgreSQL + Feishu webhook` 的日频提醒能力。
 
-- **实时估值**：通过输入基金编号，实时获取并展示基金的单位净值、估值净值及实时涨跌幅。
-- **重仓追踪**：自动获取基金前 10 大重仓股票，并实时追踪重仓股的盘中涨跌情况。支持收起/展开展示。
-- **纯前端运行**：采用 JSONP 方案直连东方财富、腾讯财经等公开接口，彻底解决跨域问题，支持在 GitHub Pages 等静态环境直接部署。
-- **本地持久化**：使用 `localStorage` 存储已添加的基金列表及配置信息，刷新不丢失。
-- **响应式设计**：完美适配 PC 与移动端。针对移动端优化了文字展示、间距及交互体验。
-- **自选功能**：支持将基金添加至“自选”列表，通过 Tab 切换展示全部基金或仅自选基金。自选状态支持持久化及同步清理。
-- **可自定义频率**：支持设置自动刷新间隔（5秒 - 300秒），并提供手动刷新按钮。
+## 功能概览
 
-## 🛠 技术栈
+- 实时拉取基金估值、净值、重仓股与盘中涨跌信息。
+- 支持自选、分组、持仓、定投和交易记录等个人看盘能力。
+- 提供 OCR 导入、移动端适配、列表/卡片双视图等使用体验优化。
+- 通过 Supabase 支持登录、云端配置同步与订阅管理。
+- 提供盘中估值历史采样与 `/api/valuation/history` 接口。
+- 提供 `/alert-config` 配置中心，可管理提醒策略模板与基金绑定关系。
+- 可通过 Docker Compose 启动 `web + worker + postgres` 的完整部署形态。
 
-- **框架**：[Next.js](https://nextjs.org/) (App Router)
-- **样式**：原生 CSS (Global CSS) + 玻璃拟态设计
-- **数据源**：
-  - 基金估值：天天基金 (JSONP)
-  - 重仓数据：东方财富 (HTML Parsing)
-  - 股票行情：腾讯财经 (Script Tag Injection)
-- **部署**：GitHub Actions + GitHub Pages
+## 技术栈
 
-## 🚀 快速开始
+- 前端与服务端：Next.js 16、React 18、App Router
+- 数据与同步：PostgreSQL、Supabase
+- 提醒链路：Node.js worker、Feishu webhook
+- 可视化与交互：Chart.js、Framer Motion、Tesseract.js
+- 自动化：GitHub Actions、Docker Compose
+
+## 仓库结构
+
+```text
+.
+|-- app/                  # Next.js 页面、组件、API Route、业务库
+|-- deploy/               # Dockerfile、docker-compose 与部署环境变量示例
+|-- docs/                 # 架构、部署、SQL 与方案文档
+|-- public/               # 静态资源
+|-- worker/               # 后台提醒 worker 入口
+|-- .github/              # CI、Issue/PR 模板、仓库协作配置
+|-- .env.example          # 本地开发环境变量示例
+|-- CONTRIBUTING.md       # 贡献指南
+|-- SECURITY.md           # 安全策略
+`-- README.md             # 项目总览
+```
+
+## 快速开始
+
+### 环境要求
+
+- Node.js `>= 20.9.0`
+- npm `>= 10`
 
 ### 本地开发
 
-1. 克隆仓库：
-   ```bash
-   git clone https://github.com/hzm0321/real-time-fund.git
-   cd real-time-fund
-   ```
+1. 安装依赖
 
-2. 安装依赖：
    ```bash
    npm install
    ```
 
-3. 配置环境变量：
+2. 配置环境变量
+
    ```bash
-   cp env.example .env.local
+   cp .env.example .env.local
    ```
-   按照 `env.example` 填入以下值：
-  - `NEXT_PUBLIC_Supabase_URL`：Supabase 项目 URL
-  - `NEXT_PUBLIC_Supabase_ANON_KEY`：Supabase 匿名公钥
-  - `NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY`：Web3Forms Access Key
-  - `NEXT_PUBLIC_GA_ID`：Google Analytics Measurement ID（如 `G-xxxx`）
-  - `NEXT_PUBLIC_GITHUB_LATEST_RELEASE_URL`：GitHub 最新 Release 接口地址，用于在页面中展示“发现新版本”提示（如：`https://api.github.com/repos/hzm0321/real-time-fund/releases/latest`）
 
-注：如不使用登录、反馈或 GA 统计功能，可不设置对应变量
+3. 按需填写以下变量
 
-4. 运行开发服务器：
+   - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`：Supabase 登录与云同步
+   - `SUPABASE_SERVICE_ROLE_KEY`：服务端校验订阅同步接口时使用
+   - `NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY`：反馈表单
+   - `NEXT_PUBLIC_GA_ID`：Google Analytics
+   - `NEXT_PUBLIC_GITHUB_LATEST_RELEASE_URL`：版本提醒接口
+   - `DATABASE_URL`：提醒 worker 与盘中估值历史采样所用 PostgreSQL
+   - `FEISHU_WEBHOOK_URL`：日频提醒推送地址
+
+4. 启动开发服务器
+
    ```bash
    npm run dev
    ```
-   访问 [http://localhost:3000](http://localhost:3000) 查看效果。
 
-### Supabase 配置说明
-1. NEXT_PUBLIC_Supabase_URL 和 NEXT_PUBLIC_Supabase_ANON_KEY 获取
+5. 打开页面
 
-   NEXT_PUBLIC_Supabase_URL：Supabase控制台 → Project Settings → General → Project ID  
-   NEXT_PUBLIC_Supabase_ANON_KEY： Supabase控制台 → Project Settings → API Keys → Publishable key
+   - 首页：`http://localhost:3000`
+   - 提醒配置：`http://localhost:3000/alert-config`
 
-2. 邮件数量修改
+### 启动提醒 worker
 
-    Supabase 免费项目自带每小时2条邮件服务。如果觉得额度不够，可以改成自己的邮箱SMTP。修改路径在 Supabase控制台 → Authentication → Email → SMTP Settings。  
-    之后可在 Rate Limits ，自由修改每小时邮件数量。
+当你需要启用基金日频提醒或盘中估值采样时，先准备好 PostgreSQL，再执行：
 
-3. 修改接收到的邮件为验证码  
-
-    在 Supabase控制台 → Authentication → Email Templates 中，选择 **Magic Link** 模板进行编辑，在邮件正文中使用变量 `{{ .Token }}` 展示验证码。  
-
-4. 修改验证码位数  
-
-    官方验证码位数默认为8位，可自行修改。常见一般为6位。
-   在 Supabase控制台 → Authentication → Sign In / Providers → Auth Providers → email → Minimum password length  和 Email OTP Length 都改为6位。
-
-5. 目前项目用到的 sql 语句，查看项目 supabase.sql 文件。
-
-更多 Supabase 相关内容查阅官方文档。
-
-### 构建与部署
-
-本项目已配置 GitHub Actions。每次推送到 `main` 分支时，会自动执行构建并部署到 GitHub Pages。
-如需使用 GitHub Actions 部署，请在 GitHub 项目 Settings → Secrets and variables → Actions 中创建对应的 Repository secrets（字段名称与 `.env.local` 保持一致）。
-包括：`NEXT_PUBLIC_Supabase_URL`、`NEXT_PUBLIC_Supabase_ANON_KEY`、`NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY`、`NEXT_PUBLIC_GA_ID`、`NEXT_PUBLIC_GITHUB_LATEST_RELEASE_URL`。
-
-若要手动构建：
 ```bash
-npm run build
-```
-服务端构建产物将生成在 `.next` 目录下。
-
-### Docker运行
-
-所有 Docker 部署文件已集中到根目录下的 `deploy/`。推荐直接使用 `docker compose` 启动 `web`、`worker`、`postgres` 3 个容器。
-
-1. 准备部署环境变量
-```bash
-cd deploy
-cp .env.example .env
-# 按需编辑 deploy/.env
+npm run worker
 ```
 
-2. 启动 3 个容器
+worker 会自动建表并按分钟轮询；若暂时不想运行，可将 `ENABLE_ALERT_WORKER=false`。
+
+## Docker 部署
+
+完整部署依赖 `deploy/` 目录中的编排文件：
+
 ```bash
-docker compose up -d --build
+cp deploy/.env.example deploy/.env
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
 
-3. 停止并清理
+默认会启动：
+
+- `web`：Next.js Web 与 API
+- `worker`：提醒与采样任务
+- `postgres`：提醒配置与采样数据存储
+
+停止并清理：
+
 ```bash
-docker compose down
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env down
 ```
 
-如需手动构建镜像，可在项目根目录执行：
-```bash
-docker build -f deploy/Dockerfile -t real-time-fund .
-```
-## 📖 使用说明
+## 文档导航
 
-1. **添加基金**：在顶部输入框输入 6 位基金代码（如 `110022`），点击“添加”。
-2. **查看详情**：卡片将展示实时估值及前 10 重仓股的占比与今日涨跌。
-3. **调整频率**：点击右上角“设置”图标，可调整自动刷新的间隔时间。
-4. **删除基金**：点击卡片右上角的红色删除图标即可移除。
+- [docs/README.md](docs/README.md)：文档入口与索引
+- [docs/architecture.md](docs/architecture.md)：运行时架构与数据流
+- [docs/deployment.md](docs/deployment.md)：本地开发、Docker 与 CI 部署说明
+- [docs/plans/fund-daily-alert-v1.md](docs/plans/fund-daily-alert-v1.md)：日频提醒方案设计
+- [docs/plans/fund-daily-alert-v1-api.md](docs/plans/fund-daily-alert-v1-api.md)：提醒配置 API 约定
+- [docs/sql/supabase.sql](docs/sql/supabase.sql)：Supabase 配置表 SQL
 
-## 💬 开发者交流群
+## 参与贡献
 
-欢迎基金实时开发者加入微信群聊讨论开发与协作：  
+欢迎贡献代码、文档与产品建议。开始之前请先阅读：
 
-微信开发群人数已满200，如需加入请加微信号 `hzm1998hzm` 。加v备注：`基估宝开发`，邀请入群。
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
 
-## 📝 免责声明
+## 免责声明
 
-本项目所有数据均来自公开接口，仅供个人学习及参考使用。数据可能存在延迟，不作为任何投资建议。
+本项目依赖公开数据源，数据可能存在延迟、缺失或口径差异，仅供学习、研究与个人参考，不构成任何投资建议。
 
-## 📄 开源协议 (License)
+## 许可证
 
-本项目采用 **[GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html)**（AGPL-3.0）开源协议。
-
-- **允许**：自由使用、修改、分发本软件；若你通过网络服务向用户提供基于本项目的修改版本，须向该服务的用户提供对应源代码。
-- **要求**：基于本项目衍生或修改的作品需以相同协议开源，并保留版权声明与协议全文。
-- **无担保**：软件按「原样」提供，不提供任何明示或暗示的担保。
-
-完整协议文本见仓库根目录 [LICENSE](./LICENSE) 文件，或 [GNU AGPL v3 官方说明](https://www.gnu.org/licenses/agpl-3.0.html)。  
-
----
-二开或转载需注明出处。  
-Made by [hzm](https://github.com/hzm0321)
+本项目采用 [GNU Affero General Public License v3.0](LICENSE) 开源。

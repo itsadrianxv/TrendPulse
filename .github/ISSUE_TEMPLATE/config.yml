@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 项目文档
+    url: https://github.com/maroonxv/real-time-fund/blob/main/docs/README.md
+    about: 先阅读项目文档、部署说明和方案设计
+  - name: 安全问题
+    url: https://github.com/maroonxv/real-time-fund/blob/main/SECURITY.md
+    about: 涉及漏洞或敏感信息时，请走安全问题流程

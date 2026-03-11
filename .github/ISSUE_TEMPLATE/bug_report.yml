@@ -1,0 +1,70 @@
+name: Bug 报告
+description: 报告一个可以复现的问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提交问题。请尽量提供可复现的信息，方便我们快速定位。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      description: 使用的 tag、commit 或部署版本
+      placeholder: 例如 main / v0.2.1 / 1a2b3c4
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - Web 页面
+        - 提醒配置页
+        - Worker / 提醒链路
+        - Docker / 部署
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 清楚描述你观察到的行为
+      placeholder: 发生了什么？影响了哪些功能？
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请按步骤描述如何稳定复现
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 输入 ...
+        4. 看到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你原本期待发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志、截图或补充信息
+      description: 可粘贴报错日志、网络响应或截图
+      render: shell

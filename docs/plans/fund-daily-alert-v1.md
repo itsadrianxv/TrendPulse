@@ -206,7 +206,7 @@
 
 ### 8.3 规则
 1. `.env.example` 必须包含 `FEISHU_WEBHOOK_URL=` 占位。
-2. 若保留 `env.example`，应与 `.env.example` 同步。
+2. 仓库统一使用 `.env.example` 作为根目录环境变量示例文件。
 
 ---
 
@@ -236,5 +236,5 @@
 1. 可通过配置增删基金映射，不改代码即可生效。
 2. 可通过配置调整策略阈值与时点，worker 自动读取。
 3. `.env` 设置 `FEISHU_WEBHOOK_URL` 后可正常推送。
-4. `.env.example`（及 `env.example`）已包含 `FEISHU_WEBHOOK_URL=`。
+4. `.env.example` 已包含 `FEISHU_WEBHOOK_URL=`。
 5. Docker 可一键启动 `web + worker + postgres`。
