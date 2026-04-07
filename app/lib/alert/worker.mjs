@@ -1,29 +1,30 @@
-﻿import dayjs from 'dayjs';
+import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import {
   ensureAlertSchema,
+  insertNotifyLog,
+  listActiveFundValuationTargets,
   listEnabledBindingsWithProfile,
   listEtfSamplesInRange,
-  upsertEtfSample1m,
-  upsertEtfBar,
   listRecentBars,
-  upsertSignalEvent,
-  listSignalEventsByDay,
-  insertNotifyLog
+  listRecentSignalEvents,
+  upsertEtfBar,
+  upsertEtfSample1m,
+  upsertFundValuationSample1m,
+  upsertSignalEvent
 } from './db.mjs';
 import { resolveBindingRuntimeConfig } from './config.mjs';
+import { evaluateTrendSignal, formatHHmm, isBarCloseMinute, isTradingMinute, resolveBarWindow, aggregatePseudoBar } from './engine.mjs';
 import { fetchBenchmarkLatestPrice } from './market.mjs';
+import { fetchFundRealtimeValuation } from '../valuation/fetch.mjs';
 import {
-  isBarCloseMinute,
-  resolveBarWindow,
-  aggregatePseudoBar,
-  evaluateDirectionSignal,
-  buildReviewSummary,
-  isTradingMinute,
-  formatHHmm
-} from './engine.mjs';
-import { ALERT_DIRECTIONS, ALERT_STAGES, ALERT_TIMEFRAMES } from './defaults.mjs';
+  ALERT_EVENT_TYPES,
+  ALERT_POSITION_STATES,
+  ALERT_SIGNAL_SIDES,
+  ALERT_TIMEFRAME,
+  ALERT_TIMEFRAMES
+} from './defaults.mjs';
 import { buildFeishuMessageText, sendFeishuTextMessage } from './notifier.mjs';
 
 dayjs.extend(utc);
@@ -42,20 +43,17 @@ const isSamplingMinute = (input, tz) => {
   return morning || afternoon;
 };
 
+export const shouldEvaluateSignalMinute = (hhmm) => isBarCloseMinute(ALERT_TIMEFRAME, hhmm);
+
 const loadRuntimeBindings = async () => {
   const rows = await listEnabledBindingsWithProfile();
   return rows.map((row) => resolveBindingRuntimeConfig(row));
 };
 
 const sampleBenchmarks = async ({ runtimeBindings, timestamp }) => {
-  const benchmarkMap = new Map();
-  for (const binding of runtimeBindings) {
-    if (binding?.benchmarkFundCode) {
-      benchmarkMap.set(binding.benchmarkFundCode, binding);
-    }
-  }
+  const benchmarkCodes = [...new Set(runtimeBindings.map((item) => item.benchmarkFundCode).filter(Boolean))];
 
-  for (const [benchmarkCode] of benchmarkMap.entries()) {
+  for (const benchmarkCode of benchmarkCodes) {
     try {
       const quote = await fetchBenchmarkLatestPrice(benchmarkCode);
       await upsertEtfSample1m({
@@ -65,6 +63,28 @@ const sampleBenchmarks = async ({ runtimeBindings, timestamp }) => {
       });
     } catch (error) {
       log('sample_failed', benchmarkCode, error.message);
+    }
+  }
+};
+
+const sampleFundValuations = async ({ targets, timestamp }) => {
+  const tradeDate = timestamp.format('YYYY-MM-DD');
+
+  for (const target of targets) {
+    try {
+      const valuation = await fetchFundRealtimeValuation(target.fund_code);
+      await upsertFundValuationSample1m({
+        fundCode: target.fund_code,
+        tradeDate,
+        sampleMinute: timestamp.toDate(),
+        estimateNav: valuation.estimateNav,
+        estimateChangePercent: valuation.estimateChangePercent,
+        latestNav: valuation.latestNav,
+        navDate: valuation.navDate,
+        estimateTime: valuation.estimateTime
+      });
+    } catch (error) {
+      log('valuation_sample_failed', target.fund_code, error.message);
     }
   }
 };
@@ -108,82 +128,108 @@ const aggregateClosedBars = async ({ runtimeBindings, timestamp, timezoneName })
   }
 };
 
-const evaluateBindingSignal = async ({ binding, cutoffTime }) => {
-  const barsByTimeframe = {};
+const resolvePositionContext = ({ bars, events }) => {
+  const sortedEvents = [...(events || [])]
+    .filter((event) => event.signal_side === ALERT_SIGNAL_SIDES.LONG)
+    .sort((left, right) => new Date(left.bar_end_time) - new Date(right.bar_end_time));
 
-  for (const timeframe of ALERT_TIMEFRAMES) {
-    const bars = await listRecentBars({
-      benchmarkFundCode: binding.benchmarkFundCode,
-      timeframe,
-      barEndTimeLte: cutoffTime.toDate(),
-      limit: 240
-    });
+  let positionState = ALERT_POSITION_STATES.FLAT;
+  let lastEntryBarEndTime = null;
+  let lastEntryAnchorTime = null;
 
-    barsByTimeframe[timeframe] = bars;
+  for (const event of sortedEvents) {
+    if (event.event_type === ALERT_EVENT_TYPES.EXIT) {
+      positionState = ALERT_POSITION_STATES.FLAT;
+      lastEntryBarEndTime = null;
+      lastEntryAnchorTime = null;
+      continue;
+    }
+
+    if (event.event_type === ALERT_EVENT_TYPES.ENTRY) {
+      positionState = ALERT_POSITION_STATES.LONG;
+      lastEntryBarEndTime = event.bar_end_time;
+      lastEntryAnchorTime = event.trigger_anchor_time || event.payload_json?.trigger_anchor_time || null;
+    }
   }
 
-  const bull = evaluateDirectionSignal({
-    barsByTimeframe,
-    params: binding.params,
-    direction: ALERT_DIRECTIONS.BULL
-  });
+  const lastEntryIndex = lastEntryBarEndTime
+    ? bars.findIndex((bar) => bar.bar_end_time === lastEntryBarEndTime)
+    : -1;
 
-  const bear = evaluateDirectionSignal({
-    barsByTimeframe,
-    params: binding.params,
-    direction: ALERT_DIRECTIONS.BEAR
-  });
-
-  return { bull, bear };
+  return {
+    positionState,
+    lastEntryBarEndTime,
+    lastEntryAnchorTime,
+    lastEntryIndex
+  };
 };
 
-const stageAlreadySent = (events, stage) => {
-  return events.some((event) => event.event_stage === stage && event.sent);
+export const buildSignalEventDecision = ({ binding, signal, existingEvents }) => {
+  if (!signal?.eventType) {
+    return null;
+  }
+
+  const duplicate = (existingEvents || []).some((event) => (
+    event.event_type === signal.eventType
+    && event.bar_end_time === signal.barEndTime
+  ));
+
+  if (duplicate) {
+    return null;
+  }
+
+  const payload = {
+    event_type: signal.eventType,
+    entry_mode: signal.entryMode || null,
+    reason: signal.reason,
+    bar_timeframe: signal.barTimeframe,
+    bar_end_time: signal.barEndTime,
+    trigger_anchor_time: signal.triggerAnchorTime || null,
+    indicators: signal.indicators
+  };
+
+  return {
+    shouldPersist: true,
+    shouldNotify: signal.eventType !== ALERT_EVENT_TYPES.SETUP_INVALIDATED,
+    event: {
+      event_type: signal.eventType,
+      signal_side: ALERT_SIGNAL_SIDES.LONG,
+      target_fund_code: binding.targetFundCode,
+      benchmark_fund_code: binding.benchmarkFundCode,
+      bar_timeframe: signal.barTimeframe,
+      bar_end_time: signal.barEndTime,
+      trigger_anchor_time: signal.triggerAnchorTime || null,
+      payload_json: payload,
+      sent: false
+    }
+  };
 };
 
-const notifyStage = async ({
-  stage,
-  direction,
-  binding,
-  eventDate,
-  payload,
-  webhookUrl
-}) => {
-  let eventRecord = await upsertSignalEvent({
-    eventDate,
-    stage,
-    direction,
-    targetFundCode: binding.targetFundCode,
-    benchmarkFundCode: binding.benchmarkFundCode,
-    payload,
-    sent: false
-  });
+const persistEvent = async ({ decision, webhookUrl, binding }) => {
+  let eventRecord = await upsertSignalEvent(decision.event);
+
+  if (!decision.shouldNotify) {
+    return { eventRecord, notified: false };
+  }
 
   let notifyResult;
   let success = false;
 
   try {
     const text = buildFeishuMessageText({
-      stage,
-      direction,
       binding,
-      payload
+      payload: {
+        ...decision.event.payload_json,
+        eventType: decision.event.event_type,
+        entryMode: decision.event.payload_json.entry_mode
+      }
     });
 
-    notifyResult = await sendFeishuTextMessage({
-      webhookUrl,
-      text
-    });
-
+    notifyResult = await sendFeishuTextMessage({ webhookUrl, text });
     success = Boolean(notifyResult.success);
 
     eventRecord = await upsertSignalEvent({
-      eventDate,
-      stage,
-      direction,
-      targetFundCode: binding.targetFundCode,
-      benchmarkFundCode: binding.benchmarkFundCode,
-      payload,
+      ...decision.event,
       sent: success
     });
 
@@ -209,163 +255,56 @@ const notifyStage = async ({
   }
 
   return {
-    success,
     eventRecord,
-    notifyResult
+    notified: success
   };
 };
 
-const processStageForDirection = async ({
-  stage,
-  direction,
-  result,
-  binding,
-  eventDate,
-  webhookUrl,
-  dayEvents
-}) => {
-  if (stageAlreadySent(dayEvents, stage)) {
-    return;
-  }
-
-  if (stage === ALERT_STAGES.PRE && !result.preMatched) {
-    return;
-  }
-
-  if (stage === ALERT_STAGES.EXEC && !result.execMatched) {
-    return;
-  }
-
-  const payload = {
-    stage,
-    direction,
-    preMatched: result.preMatched,
-    execMatched: result.execMatched,
-    reason: result.reason,
-    params: binding.params
-  };
-
-  await notifyStage({
-    stage,
-    direction,
-    binding,
-    eventDate,
-    payload,
-    webhookUrl
+const evaluateBindingSignal = async ({ binding, cutoffTime }) => {
+  const bars = await listRecentBars({
+    benchmarkFundCode: binding.benchmarkFundCode,
+    timeframe: ALERT_TIMEFRAME,
+    barEndTimeLte: cutoffTime.toDate(),
+    limit: 240
   });
+
+  const priorEvents = await listRecentSignalEvents({
+    targetFundCode: binding.targetFundCode,
+    barEndTimeLte: cutoffTime.toDate(),
+    limit: 100
+  });
+
+  const context = resolvePositionContext({ bars, events: priorEvents });
+  const signal = evaluateTrendSignal({
+    bars,
+    params: binding.params,
+    context
+  });
+
+  return { signal, priorEvents };
 };
 
-const processReviewStage = async ({
-  binding,
-  direction,
-  result,
-  eventDate,
-  webhookUrl,
-  dayEvents
-}) => {
-  if (stageAlreadySent(dayEvents, ALERT_STAGES.REVIEW)) {
-    return;
-  }
-
-  const preSent = dayEvents.some((item) => item.event_stage === ALERT_STAGES.PRE && item.sent);
-  const execSent = dayEvents.some((item) => item.event_stage === ALERT_STAGES.EXEC && item.sent);
-
-  const review = buildReviewSummary({
-    preSent,
-    execSent,
-    result
-  });
-
-  if (!review.shouldNotify) {
-    return;
-  }
-
-  const payload = {
-    stage: ALERT_STAGES.REVIEW,
-    direction,
-    status: review.status,
-    reason: review.reason,
-    preSent,
-    execSent,
-    params: binding.params
-  };
-
-  await notifyStage({
-    stage: ALERT_STAGES.REVIEW,
-    direction,
-    binding,
-    eventDate,
-    payload,
-    webhookUrl
-  });
-};
-
-const processBindingStages = async ({ binding, timestamp, timezoneName, webhookUrl }) => {
-  const eventDate = timestamp.format('YYYY-MM-DD');
-  const hhmm = timestamp.format('HH:mm');
-
-  const needPre = hhmm === binding.params.pre_alert_time;
-  const needExec = hhmm === binding.params.exec_alert_time;
-  const needReview = hhmm === binding.params.review_time;
-
-  if (!needPre && !needExec && !needReview) {
-    return;
-  }
-
-  const signal = await evaluateBindingSignal({
+const processBindingBarClose = async ({ binding, timestamp, webhookUrl }) => {
+  const { signal, priorEvents } = await evaluateBindingSignal({
     binding,
     cutoffTime: timestamp
   });
 
-  const directionResultMap = {
-    [ALERT_DIRECTIONS.BULL]: signal.bull,
-    [ALERT_DIRECTIONS.BEAR]: signal.bear
-  };
+  const decision = buildSignalEventDecision({
+    binding,
+    signal,
+    existingEvents: priorEvents
+  });
 
-  for (const direction of [ALERT_DIRECTIONS.BULL, ALERT_DIRECTIONS.BEAR]) {
-    const dayEvents = await listSignalEventsByDay({
-      eventDate,
-      targetFundCode: binding.targetFundCode,
-      direction
-    });
-
-    const result = directionResultMap[direction];
-
-    if (needPre) {
-      await processStageForDirection({
-        stage: ALERT_STAGES.PRE,
-        direction,
-        result,
-        binding,
-        eventDate,
-        webhookUrl,
-        dayEvents
-      });
-    }
-
-    if (needExec) {
-      await processStageForDirection({
-        stage: ALERT_STAGES.EXEC,
-        direction,
-        result,
-        binding,
-        eventDate,
-        webhookUrl,
-        dayEvents
-      });
-    }
-
-    if (needReview) {
-      await processReviewStage({
-        binding,
-        direction,
-        result,
-        eventDate,
-        webhookUrl,
-        dayEvents
-      });
-    }
+  if (!decision) {
+    return;
   }
+
+  await persistEvent({
+    decision,
+    webhookUrl,
+    binding
+  });
 };
 
 export const runWorkerTick = async ({ timezoneName, webhookUrl }) => {
@@ -373,32 +312,44 @@ export const runWorkerTick = async ({ timezoneName, webhookUrl }) => {
 
   const now = nowInTz(timezoneName);
   const runtimeBindings = await loadRuntimeBindings();
+  const valuationTargets = await listActiveFundValuationTargets();
 
-  if (!runtimeBindings.length) {
-    log('tick_skip_no_binding', now.format());
+  if (!runtimeBindings.length && !valuationTargets.length) {
+    log('tick_skip_no_binding_or_subscription', now.format());
     return;
   }
 
   if (isSamplingMinute(now, timezoneName)) {
     await sampleBenchmarks({ runtimeBindings, timestamp: now });
+    if (valuationTargets.length) {
+      await sampleFundValuations({ targets: valuationTargets, timestamp: now });
+    }
   }
 
-  await aggregateClosedBars({
-    runtimeBindings,
-    timestamp: now,
-    timezoneName
-  });
-
-  for (const binding of runtimeBindings) {
-    await processBindingStages({
-      binding,
+  if (runtimeBindings.length) {
+    await aggregateClosedBars({
+      runtimeBindings,
       timestamp: now,
-      timezoneName,
-      webhookUrl
+      timezoneName
     });
   }
 
-  log('tick_done', now.format(), `bindings=${runtimeBindings.length}`);
+  if (runtimeBindings.length && shouldEvaluateSignalMinute(now.format('HH:mm'))) {
+    for (const binding of runtimeBindings) {
+      await processBindingBarClose({
+        binding,
+        timestamp: now,
+        webhookUrl
+      });
+    }
+  }
+
+  log(
+    'tick_done',
+    now.format(),
+    `bindings=${runtimeBindings.length}`,
+    `valuations=${valuationTargets.length}`
+  );
 };
 
 export const startWorkerLoop = async ({ timezoneName, webhookUrl }) => {
@@ -420,8 +371,8 @@ export const startWorkerLoop = async ({ timezoneName, webhookUrl }) => {
       try {
         const tickNow = dayjs().tz(timezoneName);
         const hhmm = tickNow.format('HH:mm');
-        const inReviewWindow = hhmm >= '14:50' && hhmm <= '15:00';
-        if (isTradingMinute(tickNow, timezoneName) || inReviewWindow) {
+
+        if (isTradingMinute(tickNow, timezoneName) || shouldEvaluateSignalMinute(hhmm)) {
           await runWorkerTick({ timezoneName, webhookUrl });
         }
       } catch (error) {
@@ -434,5 +385,3 @@ export const startWorkerLoop = async ({ timezoneName, webhookUrl }) => {
 
   await scheduleNext();
 };
-
-

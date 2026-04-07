@@ -100,22 +100,27 @@ export const ensureAlertSchema = async () => {
         CREATE INDEX IF NOT EXISTS idx_etf_bar_code_tf_time
           ON etf_bar(benchmark_fund_code, bar_timeframe, bar_end_time DESC);
 
+        DROP TABLE IF EXISTS notify_log;
+        DROP TABLE IF EXISTS signal_event;
+
         CREATE TABLE IF NOT EXISTS signal_event (
           id BIGSERIAL PRIMARY KEY,
-          event_date DATE NOT NULL,
-          event_stage VARCHAR(16) NOT NULL,
-          direction VARCHAR(16) NOT NULL,
+          event_type VARCHAR(32) NOT NULL,
+          signal_side VARCHAR(16) NOT NULL,
           target_fund_code VARCHAR(32) NOT NULL,
           benchmark_fund_code VARCHAR(32) NOT NULL,
+          bar_timeframe VARCHAR(8) NOT NULL,
+          bar_end_time TIMESTAMPTZ NOT NULL,
+          trigger_anchor_time TIMESTAMPTZ NULL,
           payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           sent BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          UNIQUE(event_date, event_stage, direction, target_fund_code)
+          UNIQUE(target_fund_code, event_type, bar_timeframe, bar_end_time)
         );
 
         CREATE INDEX IF NOT EXISTS idx_signal_event_lookup
-          ON signal_event(event_date, target_fund_code, event_stage, direction);
+          ON signal_event(target_fund_code, bar_end_time DESC, event_type);
 
         CREATE TABLE IF NOT EXISTS notify_log (
           id BIGSERIAL PRIMARY KEY,
@@ -136,7 +141,10 @@ export const ensureAlertSchema = async () => {
         `
           INSERT INTO strategy_profile(name, params_json, enabled)
           VALUES ($1, $2::jsonb, TRUE)
-          ON CONFLICT (name) DO NOTHING
+          ON CONFLICT (name) DO UPDATE SET
+            params_json = EXCLUDED.params_json,
+            enabled = TRUE,
+            updated_at = NOW()
         `,
         ['default-v1', JSON.stringify(ALERT_DEFAULT_PARAMS)]
       );
@@ -524,54 +532,64 @@ export const listRecentBars = async ({
   return result.rows.reverse();
 };
 
-export const upsertSignalEvent = async ({
-  eventDate,
-  stage,
-  direction,
-  targetFundCode,
-  benchmarkFundCode,
-  payload,
-  sent
-}) => {
+export const upsertSignalEvent = async (payload) => {
   await ensureAlertSchema();
+
+  const eventType = payload.event_type ?? payload.eventType;
+  const signalSide = payload.signal_side ?? payload.signalSide;
+  const targetFundCode = payload.target_fund_code ?? payload.targetFundCode;
+  const benchmarkFundCode = payload.benchmark_fund_code ?? payload.benchmarkFundCode;
+  const barTimeframe = payload.bar_timeframe ?? payload.barTimeframe;
+  const barEndTime = payload.bar_end_time ?? payload.barEndTime;
+  const triggerAnchorTime = payload.trigger_anchor_time ?? payload.triggerAnchorTime ?? null;
+  const payloadJson = payload.payload_json ?? payload.payloadJson;
+  const sent = payload.sent;
 
   const result = await pool.query(
     `
       INSERT INTO signal_event(
-        event_date,
-        event_stage,
-        direction,
+        event_type,
+        signal_side,
         target_fund_code,
         benchmark_fund_code,
+        bar_timeframe,
+        bar_end_time,
+        trigger_anchor_time,
         payload_json,
         sent
       )
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-      ON CONFLICT (event_date, event_stage, direction, target_fund_code)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+      ON CONFLICT (target_fund_code, event_type, bar_timeframe, bar_end_time)
       DO UPDATE SET
+        signal_side = EXCLUDED.signal_side,
         benchmark_fund_code = EXCLUDED.benchmark_fund_code,
+        trigger_anchor_time = EXCLUDED.trigger_anchor_time,
         payload_json = EXCLUDED.payload_json,
         sent = EXCLUDED.sent,
         updated_at = NOW()
       RETURNING
         id,
-        event_date,
-        event_stage,
-        direction,
+        event_type,
+        signal_side,
         target_fund_code,
         benchmark_fund_code,
+        bar_timeframe,
+        bar_end_time,
+        trigger_anchor_time,
         payload_json,
         sent,
         created_at,
         updated_at
     `,
     [
-      eventDate,
-      stage,
-      direction,
+      String(eventType),
+      String(signalSide),
       String(targetFundCode),
       String(benchmarkFundCode),
-      JSON.stringify(normalizeJsonObject(payload)),
+      String(barTimeframe),
+      barEndTime,
+      triggerAnchorTime,
+      JSON.stringify(normalizeJsonObject(payloadJson)),
       Boolean(sent)
     ]
   );
@@ -579,38 +597,38 @@ export const upsertSignalEvent = async ({
   return result.rows[0];
 };
 
-export const listSignalEventsByDay = async ({ eventDate, targetFundCode, direction }) => {
+export const listRecentSignalEvents = async ({ targetFundCode, barEndTimeLte, limit = 100 }) => {
   await ensureAlertSchema();
 
-  const where = ['event_date = $1'];
-  const values = [eventDate];
+  const values = [String(targetFundCode)];
+  const where = ['target_fund_code = $1'];
 
-  if (targetFundCode) {
-    values.push(String(targetFundCode));
-    where.push(`target_fund_code = $${values.length}`);
+  if (barEndTimeLte) {
+    values.push(barEndTimeLte);
+    where.push(`bar_end_time <= $${values.length}`);
   }
 
-  if (direction) {
-    values.push(String(direction));
-    where.push(`direction = $${values.length}`);
-  }
+  values.push(Number(limit));
 
   const result = await pool.query(
     `
       SELECT
         id,
-        event_date,
-        event_stage,
-        direction,
+        event_type,
+        signal_side,
         target_fund_code,
         benchmark_fund_code,
+        bar_timeframe,
+        bar_end_time,
+        trigger_anchor_time,
         payload_json,
         sent,
         created_at,
         updated_at
       FROM signal_event
       WHERE ${where.join(' AND ')}
-      ORDER BY created_at ASC
+      ORDER BY bar_end_time ASC, created_at ASC
+      LIMIT $${values.length}
     `,
     values
   );

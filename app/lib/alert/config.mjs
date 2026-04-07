@@ -1,4 +1,4 @@
-﻿import { ALERT_DEFAULT_PARAMS } from './defaults.mjs';
+import { ALERT_DEFAULT_PARAMS, ALERT_TIMEFRAME } from './defaults.mjs';
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -14,49 +14,56 @@ const deepMerge = (base, incoming) => {
   return output;
 };
 
-const normalizeTime = (value, fallback) => {
-  if (typeof value !== 'string') {
-    return fallback;
-  }
+const normalizeInteger = (value, fallback, minimum = 1) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= minimum ? parsed : fallback;
+};
 
-  const trimmed = value.trim();
-  if (!/^\d{2}:\d{2}$/.test(trimmed)) {
-    return fallback;
-  }
-
-  const [hour, minute] = trimmed.split(':').map(Number);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return fallback;
-  }
-
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+const normalizeFloat = (value, fallback, minimum = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > minimum ? parsed : fallback;
 };
 
 const normalizeParams = (params) => {
-  const output = { ...params };
-
-  output.macd_fast = Number(output.macd_fast || ALERT_DEFAULT_PARAMS.macd_fast);
-  output.macd_slow = Number(output.macd_slow || ALERT_DEFAULT_PARAMS.macd_slow);
-  output.macd_signal = Number(output.macd_signal || ALERT_DEFAULT_PARAMS.macd_signal);
-  output.pivot_left = Number(output.pivot_left || ALERT_DEFAULT_PARAMS.pivot_left);
-  output.pivot_right_confirm = Number(output.pivot_right_confirm || ALERT_DEFAULT_PARAMS.pivot_right_confirm);
-  output.pivot_right_preview = Number(output.pivot_right_preview || ALERT_DEFAULT_PARAMS.pivot_right_preview);
-  output.eps_price = Number(output.eps_price || ALERT_DEFAULT_PARAMS.eps_price);
-  output.eps_diff_std_window = Number(output.eps_diff_std_window || ALERT_DEFAULT_PARAMS.eps_diff_std_window);
-  output.eps_diff_std_mul = Number(output.eps_diff_std_mul || ALERT_DEFAULT_PARAMS.eps_diff_std_mul);
-
-  output.td_mode = output.td_mode || ALERT_DEFAULT_PARAMS.td_mode;
-
-  output.min_sep_bars = {
-    ...ALERT_DEFAULT_PARAMS.min_sep_bars,
-    ...(isPlainObject(output.min_sep_bars) ? output.min_sep_bars : {})
+  const normalized = {
+    strategy_kind: ALERT_DEFAULT_PARAMS.strategy_kind,
+    timeframe: ALERT_TIMEFRAME,
+    ema_fast: normalizeInteger(params?.ema_fast, ALERT_DEFAULT_PARAMS.ema_fast),
+    ema_slow: normalizeInteger(params?.ema_slow, ALERT_DEFAULT_PARAMS.ema_slow),
+    ema_slow_rising_bars: normalizeInteger(
+      params?.ema_slow_rising_bars,
+      ALERT_DEFAULT_PARAMS.ema_slow_rising_bars
+    ),
+    adx_period: normalizeInteger(params?.adx_period, ALERT_DEFAULT_PARAMS.adx_period),
+    adx_threshold: normalizeFloat(params?.adx_threshold, ALERT_DEFAULT_PARAMS.adx_threshold),
+    pullback_lookback_bars: normalizeInteger(
+      params?.pullback_lookback_bars,
+      ALERT_DEFAULT_PARAMS.pullback_lookback_bars
+    ),
+    pullback_touch_tolerance: normalizeFloat(
+      params?.pullback_touch_tolerance,
+      ALERT_DEFAULT_PARAMS.pullback_touch_tolerance
+    ),
+    entry_cooldown_bars: normalizeInteger(
+      params?.entry_cooldown_bars,
+      ALERT_DEFAULT_PARAMS.entry_cooldown_bars
+    ),
+    exit_below_slow_bars: normalizeInteger(
+      params?.exit_below_slow_bars,
+      ALERT_DEFAULT_PARAMS.exit_below_slow_bars
+    ),
+    exit_channel_lookback_bars: normalizeInteger(
+      params?.exit_channel_lookback_bars,
+      ALERT_DEFAULT_PARAMS.exit_channel_lookback_bars,
+      2
+    )
   };
 
-  output.pre_alert_time = normalizeTime(output.pre_alert_time, ALERT_DEFAULT_PARAMS.pre_alert_time);
-  output.exec_alert_time = normalizeTime(output.exec_alert_time, ALERT_DEFAULT_PARAMS.exec_alert_time);
-  output.review_time = normalizeTime(output.review_time, ALERT_DEFAULT_PARAMS.review_time);
+  if (normalized.ema_slow <= normalized.ema_fast) {
+    normalized.ema_slow = ALERT_DEFAULT_PARAMS.ema_slow;
+  }
 
-  return output;
+  return normalized;
 };
 
 export const mergeAlertParams = ({ strategyParams, overrideParams } = {}) => {
@@ -84,4 +91,3 @@ export const resolveBindingRuntimeConfig = (bindingRow) => {
     params
   };
 };
-

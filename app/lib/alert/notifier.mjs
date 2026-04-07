@@ -1,43 +1,39 @@
-﻿import { ALERT_STAGES } from './defaults.mjs';
+import { ALERT_EVENT_TYPES } from './defaults.mjs';
 
-const stageLabelMap = {
-  [ALERT_STAGES.PRE]: '预警',
-  [ALERT_STAGES.EXEC]: '执行提醒',
-  [ALERT_STAGES.REVIEW]: '收盘复盘'
-};
-
-const directionLabelMap = {
-  BULL: '偏多',
-  BEAR: '偏空'
+const titleMap = {
+  [ALERT_EVENT_TYPES.ENTRY]: {
+    INITIAL: '趋势入场',
+    ADD: '趋势加仓'
+  },
+  [ALERT_EVENT_TYPES.EXIT]: '趋势退出',
+  [ALERT_EVENT_TYPES.SETUP_INVALIDATED]: '趋势条件失效'
 };
 
 const nowTs = () => new Date().toISOString();
 
-export const buildFeishuMessageText = ({
-  stage,
-  direction,
-  binding,
-  payload
-}) => {
+const resolveTitle = (payload) => {
+  if (payload?.eventType === ALERT_EVENT_TYPES.ENTRY) {
+    return titleMap[ALERT_EVENT_TYPES.ENTRY][payload?.entryMode || 'INITIAL'] || '趋势入场';
+  }
+
+  return titleMap[payload?.eventType] || payload?.eventType || '基金趋势提醒';
+};
+
+export const buildFeishuMessageText = ({ binding, payload }) => {
   const lines = [
-    `基金日频提醒｜${stageLabelMap[stage] || stage}`,
-    `方向：${directionLabelMap[direction] || direction}`,
+    `基金趋势提醒｜${resolveTitle(payload)}`,
     `交易基金：${binding.targetFundName}(${binding.targetFundCode})`,
     `驱动标的：${binding.benchmarkFundName}(${binding.benchmarkFundCode})`,
+    `K线级别：${payload?.barTimeframe || '60m'}`,
+    `收线时间：${payload?.barEndTime || '--'}`,
+    `最新收盘：${payload?.indicators?.close ?? '--'}`,
+    `EMA20：${payload?.indicators?.emaFast ?? '--'}`,
+    `EMA60：${payload?.indicators?.emaSlow ?? '--'}`,
+    `ADX：${payload?.indicators?.adx ?? '--'}`,
+    `触发锚点：${payload?.triggerAnchorTime || '--'}`,
+    `原因：${payload?.reason || '--'}`,
     `时间：${nowTs()}`
   ];
-
-  if (payload?.status) {
-    lines.push(`结论：${payload.status}`);
-  }
-
-  if (payload?.reason) {
-    lines.push(`原因：${payload.reason}`);
-  }
-
-  if (payload?.params) {
-    lines.push(`参数快照：${JSON.stringify(payload.params)}`);
-  }
 
   return lines.join('\n');
 };
@@ -71,7 +67,8 @@ export const sendFeishuTextMessage = async ({ webhookUrl, text }) => {
     responseJson = { raw: responseText };
   }
 
-  const success = response.ok && (responseJson?.StatusCode === 0 || responseJson?.code === 0 || responseJson?.msg === 'success');
+  const success = response.ok
+    && (responseJson?.StatusCode === 0 || responseJson?.code === 0 || responseJson?.msg === 'success');
 
   return {
     success,

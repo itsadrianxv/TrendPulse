@@ -1,7 +1,13 @@
-﻿import dayjs from 'dayjs';
+import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
-import { ALERT_BAR_CLOSES } from './defaults.mjs';
+import {
+  ALERT_BAR_CLOSES,
+  ALERT_DEFAULT_PARAMS,
+  ALERT_EVENT_TYPES,
+  ALERT_POSITION_STATES,
+  ALERT_TIMEFRAME
+} from './defaults.mjs';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -55,7 +61,6 @@ export const resolveBarWindow = (baseDate, timeframe, closeHHmm, tz) => {
   }
 
   const startHHmm = idx === 0 ? MORNING_START : addMinutesToHHmm(closes[idx - 1], 1);
-
   const dateStr = toDayjsInTimezone(baseDate, tz).format('YYYY-MM-DD');
   const start = dayjs.tz(`${dateStr} ${startHHmm}`, 'YYYY-MM-DD HH:mm', tz);
   const end = dayjs.tz(`${dateStr} ${closeHHmm}`, 'YYYY-MM-DD HH:mm', tz);
@@ -76,12 +81,12 @@ export const aggregatePseudoBar = (samples) => {
     return null;
   }
 
-  const open = prices[0];
-  const close = prices[prices.length - 1];
-  const high = Math.max(...prices);
-  const low = Math.min(...prices);
-
-  return { open, high, low, close };
+  return {
+    open: prices[0],
+    high: Math.max(...prices),
+    low: Math.min(...prices),
+    close: prices[prices.length - 1]
+  };
 };
 
 const ema = (values, period) => {
@@ -91,393 +96,356 @@ const ema = (values, period) => {
 
   const alpha = 2 / (period + 1);
   const output = [];
-  let prev = values[0];
+  let previous = values[0];
 
-  for (let i = 0; i < values.length; i += 1) {
-    const value = values[i];
-    if (i === 0) {
-      prev = value;
-    } else {
-      prev = value * alpha + prev * (1 - alpha);
-    }
-    output.push(prev);
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    previous = index === 0 ? value : (value * alpha) + (previous * (1 - alpha));
+    output.push(previous);
   }
 
   return output;
 };
 
-const calcStd = (values) => {
-  if (!values.length) {
-    return 0;
+const buildDmiSeries = (bars, period) => {
+  const length = bars.length;
+  const plusDi = new Array(length).fill(null);
+  const minusDi = new Array(length).fill(null);
+  const adx = new Array(length).fill(null);
+
+  if (length <= period * 2) {
+    return { plusDi, minusDi, adx };
   }
 
-  const mean = values.reduce((acc, value) => acc + value, 0) / values.length;
-  const variance = values.reduce((acc, value) => acc + ((value - mean) ** 2), 0) / values.length;
-  return Math.sqrt(variance);
-};
+  const tr = new Array(length).fill(0);
+  const plusDm = new Array(length).fill(0);
+  const minusDm = new Array(length).fill(0);
 
-const findPivotIndices = (bars, type, left, right) => {
-  const indices = [];
-  const total = bars.length;
+  for (let index = 1; index < length; index += 1) {
+    const current = bars[index];
+    const previous = bars[index - 1];
 
-  if (total < left + right + 1) {
-    return indices;
+    const highDiff = Number(current.high) - Number(previous.high);
+    const lowDiff = Number(previous.low) - Number(current.low);
+
+    plusDm[index] = highDiff > lowDiff && highDiff > 0 ? highDiff : 0;
+    minusDm[index] = lowDiff > highDiff && lowDiff > 0 ? lowDiff : 0;
+
+    const currentHigh = Number(current.high);
+    const currentLow = Number(current.low);
+    const previousClose = Number(previous.close);
+
+    tr[index] = Math.max(
+      currentHigh - currentLow,
+      Math.abs(currentHigh - previousClose),
+      Math.abs(currentLow - previousClose)
+    );
   }
 
-  for (let i = left; i < total - right; i += 1) {
-    const value = Number(type === 'high' ? bars[i].high : bars[i].low);
-    if (!Number.isFinite(value)) {
+  let smoothedTr = 0;
+  let smoothedPlusDm = 0;
+  let smoothedMinusDm = 0;
+
+  for (let index = 1; index <= period; index += 1) {
+    smoothedTr += tr[index];
+    smoothedPlusDm += plusDm[index];
+    smoothedMinusDm += minusDm[index];
+  }
+
+  const dx = new Array(length).fill(null);
+
+  for (let index = period; index < length; index += 1) {
+    if (index > period) {
+      smoothedTr = smoothedTr - (smoothedTr / period) + tr[index];
+      smoothedPlusDm = smoothedPlusDm - (smoothedPlusDm / period) + plusDm[index];
+      smoothedMinusDm = smoothedMinusDm - (smoothedMinusDm / period) + minusDm[index];
+    }
+
+    if (smoothedTr <= 0) {
       continue;
     }
 
-    let valid = true;
+    plusDi[index] = (smoothedPlusDm / smoothedTr) * 100;
+    minusDi[index] = (smoothedMinusDm / smoothedTr) * 100;
 
-    for (let j = i - left; j <= i + right; j += 1) {
-      if (j === i) {
-        continue;
-      }
-      const compareValue = Number(type === 'high' ? bars[j].high : bars[j].low);
-      if (!Number.isFinite(compareValue)) {
-        valid = false;
-        break;
-      }
+    const denominator = plusDi[index] + minusDi[index];
+    dx[index] = denominator > 0
+      ? (Math.abs(plusDi[index] - minusDi[index]) / denominator) * 100
+      : 0;
+  }
 
-      if (type === 'high' && value < compareValue) {
-        valid = false;
-        break;
-      }
+  const adxStart = period * 2 - 1;
+  let dxSum = 0;
 
-      if (type === 'low' && value > compareValue) {
-        valid = false;
-        break;
-      }
+  for (let index = period; index <= adxStart; index += 1) {
+    dxSum += dx[index] ?? 0;
+  }
+
+  adx[adxStart] = dxSum / period;
+
+  for (let index = adxStart + 1; index < length; index += 1) {
+    adx[index] = (((adx[index - 1] ?? 0) * (period - 1)) + (dx[index] ?? 0)) / period;
+  }
+
+  return { plusDi, minusDi, adx };
+};
+
+const resolveMinimumBars = (params) => Math.max(
+  params.ema_slow + params.ema_slow_rising_bars + 2,
+  params.adx_period * 2 + 2,
+  params.pullback_lookback_bars + 2,
+  params.exit_channel_lookback_bars + 1,
+  params.exit_below_slow_bars + 1
+);
+
+const getBarIndexByEndTime = (bars, barEndTime) => bars.findIndex((bar) => bar.bar_end_time === barEndTime);
+
+const findPullbackAnchorIndex = ({ bars, emaFastSeries, emaSlowSeries, latestIndex, params }) => {
+  const firstIndex = Math.max(0, latestIndex - params.pullback_lookback_bars);
+
+  for (let index = latestIndex - 1; index >= firstIndex; index -= 1) {
+    const emaFastValue = emaFastSeries[index];
+    const emaSlowValue = emaSlowSeries[index];
+    if (!Number.isFinite(emaFastValue) || !Number.isFinite(emaSlowValue)) {
+      continue;
     }
 
-    if (valid) {
-      indices.push(i);
+    const low = Number(bars[index].low);
+    const close = Number(bars[index].close);
+    const touchedFast = low <= emaFastValue * (1 + params.pullback_touch_tolerance);
+    const heldSlow = close >= emaSlowValue;
+
+    if (touchedFast && heldSlow) {
+      return index;
     }
   }
 
-  return indices;
+  return null;
 };
 
-const buildTdCounter = (closes) => {
-  const up = new Array(closes.length).fill(0);
-  const down = new Array(closes.length).fill(0);
+const buildExitCandidate = ({ bars, emaSlowSeries, latestIndex, params, positionState }) => {
+  if (positionState !== ALERT_POSITION_STATES.LONG) {
+    return null;
+  }
 
-  for (let i = 4; i < closes.length; i += 1) {
-    const current = closes[i];
-    const compare = closes[i - 4];
-
-    if (current > compare) {
-      up[i] = up[i - 1] + 1;
-      down[i] = 0;
-    } else if (current < compare) {
-      down[i] = down[i - 1] + 1;
-      up[i] = 0;
-    } else {
-      up[i] = 0;
-      down[i] = 0;
+  let consecutiveBelowSlow = true;
+  for (let offset = 0; offset < params.exit_below_slow_bars; offset += 1) {
+    const index = latestIndex - offset;
+    if (index < 0 || Number(bars[index].close) >= emaSlowSeries[index]) {
+      consecutiveBelowSlow = false;
+      break;
     }
   }
 
-  return { up, down };
-};
-
-const listPriorPivots = (pivotIndices, currentIndex) => {
-  const priors = [];
-  for (let i = pivotIndices.length - 1; i >= 0; i -= 1) {
-    if (pivotIndices[i] < currentIndex) {
-      priors.push(pivotIndices[i]);
-      if (priors.length >= 2) {
-        break;
-      }
-    }
-  }
-  return priors;
-};
-
-const buildEpsDiffSeries = (diffs, windowSize, multiplier) => {
-  return diffs.map((_, idx) => {
-    const start = Math.max(0, idx - windowSize + 1);
-    const subset = diffs.slice(start, idx + 1);
-    return calcStd(subset) * multiplier;
-  });
-};
-
-const isInvalidated = ({ direction, diffSeries, epsDiffSeries, startIndex }) => {
-  if (startIndex === null || startIndex === undefined || startIndex < 0) {
-    return true;
-  }
-
-  const anchor = diffSeries[startIndex];
-  const eps = epsDiffSeries[startIndex] || 0;
-
-  for (let i = startIndex + 1; i < diffSeries.length; i += 1) {
-    if (direction === 'BULL' && diffSeries[i] < anchor - eps) {
-      return true;
-    }
-    if (direction === 'BEAR' && diffSeries[i] > anchor + eps) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-export const buildTimeframeSignalState = ({ bars, params, timeframe, direction }) => {
-  if (!Array.isArray(bars) || bars.length < 8) {
+  if (consecutiveBelowSlow) {
     return {
-      timeframe,
-      direction,
-      activeA: false,
-      activeB: false,
-      hasEnoughBars: false,
-      reason: 'bars_not_enough'
+      eventType: ALERT_EVENT_TYPES.EXIT,
+      reason: 'exit_below_ema_slow'
     };
   }
 
-  const closes = bars.map((bar) => Number(bar.close));
-  const highs = bars.map((bar) => Number(bar.high));
-  const lows = bars.map((bar) => Number(bar.low));
-
-  if (closes.some((value) => !Number.isFinite(value))) {
-    return {
-      timeframe,
-      direction,
-      activeA: false,
-      activeB: false,
-      hasEnoughBars: false,
-      reason: 'bars_invalid'
-    };
-  }
-
-  const emaFast = ema(closes, Math.max(2, Number(params.macd_fast || 12)));
-  const emaSlow = ema(closes, Math.max(2, Number(params.macd_slow || 26)));
-  const diffSeries = closes.map((_, idx) => emaFast[idx] - emaSlow[idx]);
-  const td = buildTdCounter(closes);
-
-  const left = Math.max(1, Number(params.pivot_left || 2));
-  const right = Math.max(0, Number(params.pivot_right_confirm || 2));
-  const minSep = Number(params?.min_sep_bars?.[timeframe] || 0);
-  const epsPrice = Number(params.eps_price || 0.001);
-  const epsDiffSeries = buildEpsDiffSeries(
-    diffSeries,
-    Math.max(5, Number(params.eps_diff_std_window || 60)),
-    Number(params.eps_diff_std_mul || 0.1)
+  const channelStart = Math.max(0, latestIndex - params.exit_channel_lookback_bars);
+  const channelLow = Math.min(
+    ...bars.slice(channelStart, latestIndex).map((bar) => Number(bar.low))
   );
 
-  const pivotIndices = direction === 'BULL'
-    ? findPivotIndices(bars, 'low', left, right)
-    : findPivotIndices(bars, 'high', left, right);
-
-  const eventA = new Array(bars.length).fill(false);
-  const eventB = new Array(bars.length).fill(false);
-
-  for (let i = 0; i < bars.length; i += 1) {
-    const priors = listPriorPivots(pivotIndices, i);
-
-    if (priors.length < 2) {
-      continue;
-    }
-
-    const nearIndex = priors[0];
-    const farIndex = priors[1];
-
-    if (i - nearIndex < minSep) {
-      continue;
-    }
-
-    const epsDiff = epsDiffSeries[i] || 0;
-
-    if (direction === 'BULL') {
-      const referencePrice = Math.min(lows[nearIndex], lows[farIndex]);
-      const referenceDiff = Math.min(diffSeries[nearIndex], diffSeries[farIndex]);
-
-      const priceNewLow = lows[i] <= referencePrice * (1 - epsPrice);
-      const diffDull = diffSeries[i] >= referenceDiff - epsDiff;
-      const td8 = td.down[i] >= 8;
-
-      if (priceNewLow && diffDull && td8) {
-        eventA[i] = true;
-      }
-    } else {
-      const referencePrice = Math.max(highs[nearIndex], highs[farIndex]);
-      const referenceDiff = Math.max(diffSeries[nearIndex], diffSeries[farIndex]);
-
-      const priceNewHigh = highs[i] >= referencePrice * (1 + epsPrice);
-      const diffDull = diffSeries[i] <= referenceDiff + epsDiff;
-      const td8 = td.up[i] >= 8;
-
-      if (priceNewHigh && diffDull && td8) {
-        eventA[i] = true;
-      }
-    }
+  if (Number.isFinite(channelLow) && Number(bars[latestIndex].close) < channelLow) {
+    return {
+      eventType: ALERT_EVENT_TYPES.EXIT,
+      reason: 'exit_channel_break'
+    };
   }
 
-  for (let i = 1; i < bars.length; i += 1) {
-    if (!eventA[i - 1]) {
-      continue;
-    }
+  return null;
+};
 
-    if (direction === 'BULL' && closes[i] > closes[i - 1]) {
-      eventB[i] = true;
-    }
-
-    if (direction === 'BEAR' && closes[i] < closes[i - 1]) {
-      eventB[i] = true;
-    }
+const buildEntryCandidate = ({
+  bars,
+  emaFastSeries,
+  emaSlowSeries,
+  adxSeries,
+  plusDiSeries,
+  minusDiSeries,
+  latestIndex,
+  params,
+  context,
+  anchorIndex
+}) => {
+  if (anchorIndex === null) {
+    return null;
   }
 
-  const latestAIndex = (() => {
-    for (let i = eventA.length - 1; i >= 0; i -= 1) {
-      if (eventA[i]) {
-        return i;
-      }
-    }
+  const latestBar = bars[latestIndex];
+  const previousBar = bars[latestIndex - 1];
+
+  const emaFastValue = emaFastSeries[latestIndex];
+  const emaSlowValue = emaSlowSeries[latestIndex];
+  const adxValue = adxSeries[latestIndex];
+  const plusDiValue = plusDiSeries[latestIndex];
+  const minusDiValue = minusDiSeries[latestIndex];
+  const slowRisingIndex = latestIndex - params.ema_slow_rising_bars;
+
+  const trendActive = (
+    Number(latestBar.close) > emaFastValue
+    && emaFastValue > emaSlowValue
+    && emaSlowValue > emaSlowSeries[slowRisingIndex]
+    && adxValue >= params.adx_threshold
+    && plusDiValue > minusDiValue
+  );
+
+  const confirmation = (
+    latestIndex > anchorIndex
+    && Number(latestBar.close) > Number(previousBar.high)
+    && Number(latestBar.close) > emaFastValue
+    && Number(latestBar.close) > Number(latestBar.open)
+  );
+
+  if (!trendActive || !confirmation) {
     return null;
-  })();
+  }
 
-  const latestBIndex = (() => {
-    for (let i = eventB.length - 1; i >= 0; i -= 1) {
-      if (eventB[i]) {
-        return i;
-      }
-    }
+  const anchorBar = bars[anchorIndex];
+  if (context.lastEntryAnchorTime && context.lastEntryAnchorTime === anchorBar.bar_end_time) {
     return null;
-  })();
+  }
 
-  const invalidA = isInvalidated({
-    direction,
-    diffSeries,
-    epsDiffSeries,
-    startIndex: latestAIndex
-  });
-
-  const invalidB = isInvalidated({
-    direction,
-    diffSeries,
-    epsDiffSeries,
-    startIndex: latestBIndex
-  });
-
-  const activeA = latestAIndex !== null && !invalidA;
-  const activeB = latestBIndex !== null
-    && !invalidB
-    && latestAIndex !== null
-    && latestBIndex >= latestAIndex;
+  if (context.positionState === ALERT_POSITION_STATES.LONG && context.lastEntryBarEndTime) {
+    const lastEntryIndex = getBarIndexByEndTime(bars, context.lastEntryBarEndTime);
+    if (lastEntryIndex >= 0 && (latestIndex - lastEntryIndex) < params.entry_cooldown_bars) {
+      return null;
+    }
+  }
 
   return {
-    timeframe,
-    direction,
+    eventType: ALERT_EVENT_TYPES.ENTRY,
+    entryMode: context.positionState === ALERT_POSITION_STATES.LONG ? 'ADD' : 'INITIAL',
+    reason: 'pullback_reclaimed_ema20',
+    triggerAnchorTime: anchorBar.bar_end_time
+  };
+};
+
+const buildInvalidatedCandidate = ({
+  bars,
+  emaSlowSeries,
+  plusDiSeries,
+  minusDiSeries,
+  latestIndex,
+  anchorIndex
+}) => {
+  if (anchorIndex === null || latestIndex <= anchorIndex) {
+    return null;
+  }
+
+  const latestClose = Number(bars[latestIndex].close);
+  if (latestClose < emaSlowSeries[latestIndex]) {
+    return {
+      eventType: ALERT_EVENT_TYPES.SETUP_INVALIDATED,
+      reason: 'setup_lost_ema60',
+      triggerAnchorTime: bars[anchorIndex].bar_end_time
+    };
+  }
+
+  if ((plusDiSeries[latestIndex] ?? 0) <= (minusDiSeries[latestIndex] ?? 0)) {
+    return {
+      eventType: ALERT_EVENT_TYPES.SETUP_INVALIDATED,
+      reason: 'setup_lost_dmi_support',
+      triggerAnchorTime: bars[anchorIndex].bar_end_time
+    };
+  }
+
+  return null;
+};
+
+export const resolveTrendEventPriority = ({ exitCandidate, entryCandidate, invalidatedCandidate }) => (
+  exitCandidate
+  || entryCandidate
+  || invalidatedCandidate
+  || null
+);
+
+export const evaluateTrendSignal = ({
+  bars,
+  params = ALERT_DEFAULT_PARAMS,
+  context = { positionState: ALERT_POSITION_STATES.FLAT }
+}) => {
+  const safeBars = Array.isArray(bars) ? bars : [];
+  const requiredBars = resolveMinimumBars(params);
+
+  if (safeBars.length < requiredBars) {
+    return {
+      hasEnoughBars: false,
+      eventType: null,
+      reason: 'bars_not_enough',
+      barEndTime: safeBars[safeBars.length - 1]?.bar_end_time || null
+    };
+  }
+
+  const closes = safeBars.map((bar) => Number(bar.close));
+  const emaFastSeries = ema(closes, params.ema_fast);
+  const emaSlowSeries = ema(closes, params.ema_slow);
+  const { plusDi, minusDi, adx } = buildDmiSeries(safeBars, params.adx_period);
+  const latestIndex = safeBars.length - 1;
+  const anchorIndex = findPullbackAnchorIndex({
+    bars: safeBars,
+    emaFastSeries,
+    emaSlowSeries,
+    latestIndex,
+    params
+  });
+
+  const exitCandidate = buildExitCandidate({
+    bars: safeBars,
+    emaSlowSeries,
+    latestIndex,
+    params,
+    positionState: context.positionState
+  });
+
+  const entryCandidate = buildEntryCandidate({
+    bars: safeBars,
+    emaFastSeries,
+    emaSlowSeries,
+    adxSeries: adx,
+    plusDiSeries: plusDi,
+    minusDiSeries: minusDi,
+    latestIndex,
+    params,
+    context,
+    anchorIndex
+  });
+
+  const invalidatedCandidate = buildInvalidatedCandidate({
+    bars: safeBars,
+    emaSlowSeries,
+    plusDiSeries: plusDi,
+    minusDiSeries: minusDi,
+    latestIndex,
+    anchorIndex
+  });
+
+  const resolved = resolveTrendEventPriority({
+    exitCandidate,
+    entryCandidate,
+    invalidatedCandidate
+  });
+
+  const latestBar = safeBars[latestIndex];
+
+  return {
     hasEnoughBars: true,
-    activeA,
-    activeB,
-    invalidA,
-    invalidB,
-    latestAIndex,
-    latestBIndex,
-    latestClose: closes[closes.length - 1],
-    latestDiff: diffSeries[diffSeries.length - 1]
-  };
-};
-
-const evaluateStage = (tfStates) => {
-  const s15 = tfStates['15m'];
-  const s30 = tfStates['30m'];
-  const s60 = tfStates['60m'];
-
-  if (!s15 || !s30 || !s60) {
-    return {
-      preMatched: false,
-      execMatched: false,
-      reason: 'timeframe_missing'
-    };
-  }
-
-  if (!s15.hasEnoughBars || !s30.hasEnoughBars || !s60.hasEnoughBars) {
-    return {
-      preMatched: false,
-      execMatched: false,
-      reason: 'bars_not_enough'
-    };
-  }
-
-  const preMatched = s60.activeA && (s30.activeA || s30.activeB) && s15.activeA;
-  const execMatched = s60.activeA && s30.activeB && (s15.activeB || s15.activeA) && !s60.invalidA && !s30.invalidA;
-
-  if (execMatched) {
-    return {
-      preMatched,
-      execMatched,
-      reason: 'exec_matched'
-    };
-  }
-
-  if (preMatched) {
-    return {
-      preMatched,
-      execMatched,
-      reason: 'pre_only'
-    };
-  }
-
-  return {
-    preMatched,
-    execMatched,
-    reason: 'condition_not_met'
-  };
-};
-
-export const evaluateDirectionSignal = ({ barsByTimeframe, params, direction }) => {
-  const tfStates = {};
-
-  for (const timeframe of ['15m', '30m', '60m']) {
-    tfStates[timeframe] = buildTimeframeSignalState({
-      bars: barsByTimeframe[timeframe] || [],
-      params,
-      timeframe,
-      direction
-    });
-  }
-
-  const stage = evaluateStage(tfStates);
-
-  return {
-    direction,
-    states: tfStates,
-    ...stage
-  };
-};
-
-export const buildReviewSummary = ({ preSent, execSent, result }) => {
-  if (!preSent && !execSent) {
-    return {
-      shouldNotify: false,
-      status: 'NO_SIGNAL',
-      reason: 'no_pre_or_exec_signal'
-    };
-  }
-
-  if (result.execMatched) {
-    return {
-      shouldNotify: true,
-      status: 'VALID',
-      reason: 'exec_rule_matched_at_close'
-    };
-  }
-
-  if (result.preMatched) {
-    return {
-      shouldNotify: true,
-      status: 'PARTIAL',
-      reason: 'pre_rule_kept_but_exec_not_matched'
-    };
-  }
-
-  return {
-    shouldNotify: true,
-    status: 'INVALID',
-    reason: result.reason || 'condition_invalidated'
+    eventType: resolved?.eventType || null,
+    entryMode: resolved?.entryMode || null,
+    reason: resolved?.reason || 'entry_not_ready',
+    barTimeframe: ALERT_TIMEFRAME,
+    barEndTime: latestBar.bar_end_time,
+    triggerAnchorTime: resolved?.triggerAnchorTime || (anchorIndex === null ? null : safeBars[anchorIndex].bar_end_time),
+    indicators: {
+      close: Number(latestBar.close),
+      emaFast: emaFastSeries[latestIndex],
+      emaSlow: emaSlowSeries[latestIndex],
+      adx: adx[latestIndex],
+      plusDi: plusDi[latestIndex],
+      minusDi: minusDi[latestIndex]
+    }
   };
 };

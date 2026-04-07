@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prepare": "husky",
-    "worker": "node worker/index.mjs"
+    "worker": "node worker/index.mjs",
+    "test": "node --test tests/alert/config.test.mjs tests/alert/engine.test.mjs tests/alert/worker.test.mjs"
   },
   "dependencies": {
     "@dicebear/collection": "^9.3.1",

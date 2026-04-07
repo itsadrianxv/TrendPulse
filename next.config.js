@@ -4,6 +4,9 @@ const nextConfig = {
   reactCompiler: true,
   images: {
     unoptimized: true
+  },
+  turbopack: {
+    root: __dirname
   }
 };
 
