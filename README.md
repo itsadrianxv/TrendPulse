@@ -105,6 +105,7 @@ npm run config:validate -- --config ./config/fund-alert.example.json
 npm run daemon:once -- --config ./config/fund-alert.example.json
 npm run state -- --config ./config/fund-alert.example.json --fund 161725
 npm run daemon -- --config ./config/fund-alert.json
+bash scripts/reapply-server.sh
 ```
 
 ## 配置说明

@@ -53,6 +53,28 @@ After changing `config/fund-alert.json`, restart the service:
 bash scripts/restart-service.sh fund-alert.service
 ```
 
+Use this only for configuration-only changes when the code on the server is already up to date.
+
+## Code Updates
+
+After you have pushed new code to remote `main`, re-apply it on the server with:
+
+```bash
+bash scripts/reapply-server.sh
+```
+
+This script performs:
+
+1. `git fetch origin`
+2. `git pull --ff-only origin main`
+3. `npm ci`
+4. `npm test`
+5. `npm run config:validate -- --config /opt/real-time-fund/config/fund-alert.json`
+6. `systemctl restart fund-alert.service`
+7. `systemctl status fund-alert.service --no-pager`
+
+It will stop immediately if the server working tree is dirty or if any verification step fails.
+
 ## Verification
 
 Use these local commands before restart:
