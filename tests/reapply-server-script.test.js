@@ -25,8 +25,8 @@ describe('reapply-server.sh', () => {
   it('contains the required guards and deployment commands in order', async () => {
     const content = await fs.readFile(scriptPath, 'utf8');
 
-    expect(content).toContain('服务器工作树不干净，请先清理后再运行');
-    expect(content).toContain('配置文件不存在: $CONFIG_PATH');
+    expect(content).toContain('Server worktree is dirty. Clean it before running this script.');
+    expect(content).toContain('Config file does not exist: $CONFIG_PATH');
     expect(content).toContain('git fetch origin');
     expect(content).toContain('git pull --ff-only origin $(quote_for_bash "$BRANCH")');
     expect(content).toContain("npm ci");

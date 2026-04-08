@@ -17,7 +17,7 @@ die() {
 }
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "缺少命令: $1"
+  command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
 }
 
 quote_for_bash() {
@@ -74,20 +74,20 @@ require_command sudo
 require_command systemctl
 require_command bash
 
-[ -d "$REPO_DIR" ] || die "仓库目录不存在: $REPO_DIR"
-[ -f "$CONFIG_PATH" ] || die "配置文件不存在: $CONFIG_PATH"
+[ -d "$REPO_DIR" ] || die "Repository directory does not exist: $REPO_DIR"
+[ -f "$CONFIG_PATH" ] || die "Config file does not exist: $CONFIG_PATH"
 
 log_step "Checking working tree"
 DIRTY_STATUS="$(git_status_short)"
 if [ -n "$DIRTY_STATUS" ]; then
   printf '%s\n' "$DIRTY_STATUS" >&2
-  die "服务器工作树不干净，请先清理后再运行"
+  die "Server worktree is dirty. Clean it before running this script."
 fi
 
 log_step "Checking current branch"
 CURRENT_BRANCH="$(git_current_branch)"
 if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
-  die "当前分支不是 ${BRANCH}: ${CURRENT_BRANCH}"
+  die "Current branch is not ${BRANCH}: ${CURRENT_BRANCH}"
 fi
 
 log_step "Fetching origin/${BRANCH}"
