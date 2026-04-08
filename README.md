@@ -1,6 +1,6 @@
-# Real-time Fund Alert Daemon
+# TrendPulse
 
-面向基金估值序列的无头 Node.js 守护进程：按分钟采样，合成固定 `60m` K 线，计算指标，基于一套固定的趋势回踩再起策略产出 `ENTRY`、`EXIT`、`SETUP_INVALIDATED` 事件，并把 `ENTRY` / `EXIT` 推送到飞书。
+TrendPulse 是一个面向基金估值序列的无头 Node.js 守护进程：按分钟采样，合成固定 `60m` K 线，计算指标，基于一套固定的趋势回踩再起策略产出 `ENTRY`、`EXIT`、`SETUP_INVALIDATED` 事件，并把 `ENTRY` / `EXIT` 推送到飞书。
 
 ## 核心交易逻辑
 
