@@ -1,7 +1,5 @@
 ﻿# Real-time Fund
 
-[![Pages](https://github.com/maroonxv/real-time-fund/actions/workflows/nextjs.yml/badge.svg)](https://github.com/maroonxv/real-time-fund/actions/workflows/nextjs.yml)
-[![Docker CI](https://github.com/maroonxv/real-time-fund/actions/workflows/docker-ci.yml/badge.svg)](https://github.com/maroonxv/real-time-fund/actions/workflows/docker-ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
 
 一个面向基金投资场景的 Next.js 应用，提供基金看板、估值历史、云端同步，以及基于 `worker + PostgreSQL + Feishu webhook` 的趋势择时提醒。
@@ -33,7 +31,7 @@
 - 数据与同步：PostgreSQL、Supabase
 - 提醒链路：Node.js worker、Feishu webhook
 - 图表与交互：Chart.js、Framer Motion、Tesseract.js
-- 自动化：GitHub Actions、Docker Compose
+- 自动化：Docker Compose
 
 ## 仓库结构
 
